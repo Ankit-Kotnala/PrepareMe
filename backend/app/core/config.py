@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:3000"
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
 
-    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/prepareme"
+    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5433/prepareme"
     redis_url: str = "redis://localhost:6379/0"
     celery_broker_url: str = "redis://localhost:6379/0"
     celery_result_backend: str = "redis://localhost:6379/1"
