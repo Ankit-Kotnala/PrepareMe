@@ -1,6 +1,5 @@
 """Shared typed primitives for JSON-like metadata."""
 
-from typing import TypeAlias
+from pydantic import JsonValue
 
-JSONScalar: TypeAlias = str | int | float | bool | None
-JSONValue: TypeAlias = JSONScalar | list["JSONValue"] | dict[str, "JSONValue"]
+JSONValue = JsonValue
