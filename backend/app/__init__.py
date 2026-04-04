@@ -1,0 +1,2 @@
+"""PrepareMe backend application package."""
+
