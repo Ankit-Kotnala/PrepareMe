@@ -10,6 +10,7 @@ class Environment(str, Enum):
 
 class AuthMode(str, Enum):
     TEST_HEADER = "test_header"
+    LOCAL_JWT = "local_jwt"
     CLERK = "clerk"
 
 

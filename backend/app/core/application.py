@@ -1,4 +1,5 @@
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 
 import sentry_sdk
 import structlog
@@ -7,6 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
 from app.api.router import api_router
+from app.auth.bootstrap import ensure_demo_auth_bootstrap
+from app.auth.turnstile import CloudflareTurnstileVerifier
 from app.auth.verifiers import AuthenticationError, build_token_verifier
 from app.core.config import Settings, get_settings
 from app.core.db.session import DatabaseSessionManager
@@ -17,7 +20,8 @@ from app.core.tasks import create_celery_app
 
 logger = structlog.get_logger(__name__)
 
-PUBLIC_PATH_PREFIXES = ("/", "/docs", "/redoc", "/openapi.json", "/v1/health")
+PUBLIC_PATH_EXACT = {"/", "/openapi.json", "/v1/auth/login"}
+PUBLIC_PATH_PREFIXES = ("/docs", "/redoc", "/v1/health")
 
 
 def create_application(
@@ -35,16 +39,29 @@ def create_application(
             traces_sample_rate=0.1,
         )
 
-    app = FastAPI(
-        title=resolved_settings.app_name,
-        debug=resolved_settings.debug,
-    )
-    app.state.settings = resolved_settings
-    app.state.db_session_manager = db_session_manager or DatabaseSessionManager(
+    resolved_db_session_manager = db_session_manager or DatabaseSessionManager(
         resolved_settings.database_url,
         echo=resolved_settings.debug,
     )
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        await ensure_demo_auth_bootstrap(
+            settings=resolved_settings,
+            db_session_manager=resolved_db_session_manager,
+        )
+        yield
+        await resolved_db_session_manager.dispose()
+
+    app = FastAPI(
+        title=resolved_settings.app_name,
+        debug=resolved_settings.debug,
+        lifespan=lifespan,
+    )
+    app.state.settings = resolved_settings
+    app.state.db_session_manager = resolved_db_session_manager
     app.state.token_verifier = build_token_verifier(resolved_settings)
+    app.state.turnstile_verifier = CloudflareTurnstileVerifier(resolved_settings)
     app.state.celery_app = create_celery_app(resolved_settings)
     app.state.storage = TenantScopedStorage(provider=LocalDebugStorageProvider())
     app.state.llm_provider = NoopLLMProvider()
@@ -101,4 +118,6 @@ def create_application(
 
 
 def _is_public_path(path: str) -> bool:
+    if path in PUBLIC_PATH_EXACT:
+        return True
     return any(path == prefix or path.startswith(f"{prefix}/") for prefix in PUBLIC_PATH_PREFIXES)

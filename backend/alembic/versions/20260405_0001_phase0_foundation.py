@@ -18,7 +18,13 @@ branch_labels: Sequence[str] | None = None
 depends_on: Sequence[str] | None = None
 
 
-plan_tier = postgresql.ENUM("starter", "professional", "enterprise", name="plan_tier")
+plan_tier = postgresql.ENUM(
+    "starter",
+    "professional",
+    "enterprise",
+    name="plan_tier",
+    create_type=False,
+)
 user_role = postgresql.ENUM(
     "student",
     "teacher",
@@ -26,15 +32,45 @@ user_role = postgresql.ENUM(
     "institution_admin",
     "platform_admin",
     name="user_role",
+    create_type=False,
 )
-answer_strictness = postgresql.ENUM("strict", "standard", "open", name="answer_strictness")
-explanation_depth = postgresql.ENUM("concise", "standard", "detailed", name="explanation_depth")
-ai_response_type = postgresql.ENUM("answer", "hedge", "refusal", "redirect", name="ai_response_type")
+answer_strictness = postgresql.ENUM(
+    "strict",
+    "standard",
+    "open",
+    name="answer_strictness",
+    create_type=False,
+)
+explanation_depth = postgresql.ENUM(
+    "concise",
+    "standard",
+    "detailed",
+    name="explanation_depth",
+    create_type=False,
+)
+ai_response_type = postgresql.ENUM(
+    "answer",
+    "hedge",
+    "refusal",
+    "redirect",
+    name="ai_response_type",
+    create_type=False,
+)
 
 
 def upgrade() -> None:
     op.execute("CREATE EXTENSION IF NOT EXISTS ltree")
-    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'vector') THEN
+                CREATE EXTENSION IF NOT EXISTS vector;
+            END IF;
+        END
+        $$;
+        """
+    )
 
     bind = op.get_bind()
     plan_tier.create(bind, checkfirst=True)

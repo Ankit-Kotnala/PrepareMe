@@ -11,6 +11,9 @@ class RequestContext:
     user_id: UUID
     role: UserRole
     email: str | None = None
+    display_name: str | None = None
+    institution_name: str | None = None
+    institution_slug: str | None = None
     session_id: str | None = None
     raw_claims: dict[str, JSONValue] = field(default_factory=dict)
 

@@ -13,6 +13,15 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def enum_column_type(enum_class: type[PlanTier | UserRole | AnswerStrictness | ExplanationDepth | AIResponseType], name: str) -> SQLEnum:
+    return SQLEnum(
+        enum_class,
+        name=name,
+        values_callable=lambda enum_members: [member.value for member in enum_members],
+        validate_strings=True,
+    )
+
+
 class Institution(Base):
     __tablename__ = "institutions"
 
@@ -20,7 +29,7 @@ class Institution(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     slug: Mapped[str] = mapped_column(String(120), nullable=False, unique=True, index=True)
     plan_tier: Mapped[PlanTier] = mapped_column(
-        SQLEnum(PlanTier, name="plan_tier"),
+        enum_column_type(PlanTier, "plan_tier"),
         nullable=False,
         default=PlanTier.STARTER,
     )
@@ -45,7 +54,7 @@ class User(Base):
         index=True,
     )
     email: Mapped[str] = mapped_column(String(320), nullable=False, index=True)
-    role: Mapped[UserRole] = mapped_column(SQLEnum(UserRole, name="user_role"), nullable=False)
+    role: Mapped[UserRole] = mapped_column(enum_column_type(UserRole, "user_role"), nullable=False)
     profile: Mapped[dict[str, JSONValue]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -54,6 +63,41 @@ class User(Base):
     )
 
     institution: Mapped[Institution] = relationship(back_populates="users")
+    local_auth_credential: Mapped["LocalAuthCredential | None"] = relationship(
+        back_populates="user",
+        uselist=False,
+    )
+
+
+class LocalAuthCredential(Base):
+    __tablename__ = "local_auth_credentials"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    institution_id: Mapped[UUID] = mapped_column(
+        ForeignKey("institutions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    password_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utcnow,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utcnow,
+        onupdate=utcnow,
+    )
+
+    user: Mapped[User] = relationship(back_populates="local_auth_credential")
 
 
 class TenantPolicy(Base):
@@ -67,14 +111,14 @@ class TenantPolicy(Base):
         index=True,
     )
     answer_strictness: Mapped[AnswerStrictness] = mapped_column(
-        SQLEnum(AnswerStrictness, name="answer_strictness"),
+        enum_column_type(AnswerStrictness, "answer_strictness"),
         nullable=False,
         default=AnswerStrictness.STANDARD,
     )
     min_confidence_threshold: Mapped[float] = mapped_column(Float, nullable=False, default=0.6)
     content_approval_required: Mapped[bool] = mapped_column(nullable=False, default=True)
     explanation_depth: Mapped[ExplanationDepth] = mapped_column(
-        SQLEnum(ExplanationDepth, name="explanation_depth"),
+        enum_column_type(ExplanationDepth, "explanation_depth"),
         nullable=False,
         default=ExplanationDepth.STANDARD,
     )
@@ -115,7 +159,7 @@ class AIInteraction(Base):
     confidence_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     response: Mapped[str] = mapped_column(Text, nullable=False)
     response_type: Mapped[AIResponseType] = mapped_column(
-        SQLEnum(AIResponseType, name="ai_response_type"),
+        enum_column_type(AIResponseType, "ai_response_type"),
         nullable=False,
     )
     curriculum_node_ids: Mapped[list[JSONValue]] = mapped_column(JSON, default=list)

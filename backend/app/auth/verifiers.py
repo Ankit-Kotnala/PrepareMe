@@ -39,15 +39,50 @@ class TestHeaderTokenVerifier:
             user_id=UUID(user_id),
             role=parsed_role,
             email=email,
+            display_name=request.headers.get("X-PrepareMe-Display-Name"),
+            institution_name=request.headers.get("X-PrepareMe-Institution-Name"),
+            institution_slug=request.headers.get("X-PrepareMe-Institution-Slug"),
             session_id=session_id,
             raw_claims={
                 "sub": user_id,
                 "institution_id": institution_id,
                 "role": role,
                 "email": email,
+                "name": request.headers.get("X-PrepareMe-Display-Name"),
+                "institution_name": request.headers.get("X-PrepareMe-Institution-Name"),
+                "institution_slug": request.headers.get("X-PrepareMe-Institution-Slug"),
                 "sid": session_id,
             },
         )
+
+
+class LocalJWTTokenVerifier:
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
+
+    async def verify_request(self, request: Request) -> RequestContext:
+        authorization = request.headers.get("Authorization")
+        if authorization is None or not authorization.startswith("Bearer "):
+            raise AuthenticationError("Missing Bearer token.")
+
+        token = authorization.removeprefix("Bearer ").strip()
+        decode_kwargs: dict[str, object] = {
+            "algorithms": [self.settings.jwt_algorithm],
+            "issuer": self.settings.jwt_issuer,
+        }
+        if self.settings.auth_audience:
+            decode_kwargs["audience"] = self.settings.auth_audience
+
+        try:
+            claims: dict[str, JSONValue] = jwt.decode(
+                token,
+                self.settings.jwt_secret,
+                **decode_kwargs,
+            )
+        except InvalidTokenError as exc:
+            raise AuthenticationError("Invalid authentication token.") from exc
+
+        return _context_from_claims(self.settings, claims)
 
 
 class ClerkTokenVerifier:
@@ -77,40 +112,57 @@ class ClerkTokenVerifier:
         except InvalidTokenError as exc:
             raise AuthenticationError("Invalid authentication token.") from exc
 
-        return self._context_from_claims(claims)
-
-    def _context_from_claims(self, claims: dict[str, JSONValue]) -> RequestContext:
-        user_id_value = claims.get(self.settings.auth_user_id_claim)
-        institution_id_value = claims.get(self.settings.auth_institution_id_claim)
-        role_value = claims.get(self.settings.auth_role_claim)
-        email_value = claims.get(self.settings.auth_email_claim)
-        session_id_value = claims.get(self.settings.auth_session_id_claim)
-
-        if not isinstance(user_id_value, str) or not isinstance(institution_id_value, str):
-            raise AuthenticationError("Missing required user or institution claim.")
-        if not isinstance(role_value, str):
-            raise AuthenticationError("Missing required role claim.")
-        if email_value is not None and not isinstance(email_value, str):
-            raise AuthenticationError("Email claim must be a string.")
-        if session_id_value is not None and not isinstance(session_id_value, str):
-            raise AuthenticationError("Session claim must be a string.")
-
-        try:
-            role = UserRole(role_value)
-        except ValueError as exc:
-            raise AuthenticationError(f"Unsupported role '{role_value}'.") from exc
-
-        return RequestContext(
-            institution_id=UUID(institution_id_value),
-            user_id=UUID(user_id_value),
-            role=role,
-            email=email_value,
-            session_id=session_id_value,
-            raw_claims=claims,
-        )
+        return _context_from_claims(self.settings, claims)
 
 
-def build_token_verifier(settings: Settings) -> TestHeaderTokenVerifier | ClerkTokenVerifier:
+def _context_from_claims(settings: Settings, claims: dict[str, JSONValue]) -> RequestContext:
+    user_id_value = claims.get(settings.auth_user_id_claim)
+    institution_id_value = claims.get(settings.auth_institution_id_claim)
+    role_value = claims.get(settings.auth_role_claim)
+    email_value = claims.get(settings.auth_email_claim)
+    display_name_value = claims.get(settings.auth_display_name_claim)
+    institution_name_value = claims.get(settings.auth_institution_name_claim)
+    institution_slug_value = claims.get(settings.auth_institution_slug_claim)
+    session_id_value = claims.get(settings.auth_session_id_claim)
+
+    if not isinstance(user_id_value, str) or not isinstance(institution_id_value, str):
+        raise AuthenticationError("Missing required user or institution claim.")
+    if not isinstance(role_value, str):
+        raise AuthenticationError("Missing required role claim.")
+    if email_value is not None and not isinstance(email_value, str):
+        raise AuthenticationError("Email claim must be a string.")
+    if display_name_value is not None and not isinstance(display_name_value, str):
+        raise AuthenticationError("Display name claim must be a string.")
+    if institution_name_value is not None and not isinstance(institution_name_value, str):
+        raise AuthenticationError("Institution name claim must be a string.")
+    if institution_slug_value is not None and not isinstance(institution_slug_value, str):
+        raise AuthenticationError("Institution slug claim must be a string.")
+    if session_id_value is not None and not isinstance(session_id_value, str):
+        raise AuthenticationError("Session claim must be a string.")
+
+    try:
+        role = UserRole(role_value)
+    except ValueError as exc:
+        raise AuthenticationError(f"Unsupported role '{role_value}'.") from exc
+
+    return RequestContext(
+        institution_id=UUID(institution_id_value),
+        user_id=UUID(user_id_value),
+        role=role,
+        email=email_value,
+        display_name=display_name_value,
+        institution_name=institution_name_value,
+        institution_slug=institution_slug_value,
+        session_id=session_id_value,
+        raw_claims=claims,
+    )
+
+
+def build_token_verifier(
+    settings: Settings,
+) -> TestHeaderTokenVerifier | LocalJWTTokenVerifier | ClerkTokenVerifier:
+    if settings.auth_mode == AuthMode.LOCAL_JWT:
+        return LocalJWTTokenVerifier(settings)
     if settings.auth_mode == AuthMode.CLERK:
         return ClerkTokenVerifier(settings)
     return TestHeaderTokenVerifier()
