@@ -23,7 +23,7 @@ Phase 0 foundation:
 - explicit auth and institution context
 - PostgreSQL schema baseline and RLS migration
 - LLM, storage, logging, and task orchestration boundaries
-- initial frontend shell
+- login-first frontend shell with role-aware dashboards
 
 ## Local Run
 
@@ -64,28 +64,32 @@ The development Postgres container is exposed on `localhost:5433` on purpose, so
 
 If you want to use your own local PostgreSQL instead, update `PREPAREME_DATABASE_URL` in `backend/.env` to match your actual credentials and port.
 
+For the current auth-and-dashboard phase, the base migration will gracefully skip `pgvector` if your local PostgreSQL installation does not provide that extension yet. Later retrieval migrations will require a pgvector-enabled database.
+
 ### Useful URLs
 
 - API root: `http://localhost:8000/`
 - API docs: `http://localhost:8000/docs`
 - Frontend: `http://localhost:3000`
 
-### Test Auth Headers
+### Login Flow
 
-Protected backend routes currently use development headers:
+The local app now boots into a real sign-in screen. On backend startup, demo users are automatically seeded into the local database when `PREPAREME_AUTH_MODE=local_jwt` and `PREPAREME_BOOTSTRAP_DEMO_DATA=true`.
 
-- `X-PrepareMe-User-Id`
-- `X-PrepareMe-Institution-Id`
-- `X-PrepareMe-Role`
-- `X-PrepareMe-Email`
+Demo credentials:
 
-Example:
+- Institution code: `prepareme-demo`
+- Admin: `admin@prepareme.local` / `Admin@123`
+- Teacher: `teacher@prepareme.local` / `Teacher@123`
+- Student: `student@prepareme.local` / `Student@123`
 
-```powershell
-curl http://localhost:8000/v1/auth/me `
-  -H "X-PrepareMe-User-Id: 11111111-1111-1111-1111-111111111111" `
-  -H "X-PrepareMe-Institution-Id: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" `
-  -H "X-PrepareMe-Role: teacher" `
-  -H "X-PrepareMe-Email: teacher@prepareme.test"
-```
+For local development, the login surface is protected with Cloudflare Turnstile using Cloudflare's official test site key and secret. Replace those values with real tenant-owned keys before any non-local deployment.
+
+Sign in at `http://localhost:3000` and the app will route each user to the correct dashboard:
+
+- `/teacher` for teacher and course admin roles
+- `/student` for students
+- `/admin` for institution and platform admins
+
+If login fails with a service-unreachable message, make sure the FastAPI backend is running on `http://localhost:8000`.
 
